@@ -5,3 +5,8 @@ authors = ["Douglas Campos <qmx@qmx.me>"]
 
 [dependencies]
 structopt = "0.2.13"
+app_dirs = "1.2.1"
+toml = "0.4.8"
+serde = "1.0.80"
+serde_derive = "1.0.80"
+failure = "0.1.3"

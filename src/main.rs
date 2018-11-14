@@ -7,9 +7,10 @@ extern crate structopt;
 extern crate toml;
 
 use app_dirs::{AppDataType, AppInfo};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read;
 use std::io::Write;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use structopt::StructOpt;
 
@@ -43,14 +44,19 @@ struct Config {
 }
 
 impl Config {
-    fn load() -> Result<Config, failure::Error> {
-        let cfg_path =
-            app_dirs::app_dir(AppDataType::UserConfig, &APP_INFO, "")?.join("config.toml");
-        let mut file = File::open(&cfg_path)?;
+    fn cfg_path() -> Result<PathBuf, failure::Error> {
+        Ok(app_dirs::app_dir(AppDataType::UserConfig, &APP_INFO, "")?.join("config.toml"))
+    }
 
-        let mut toml = String::new();
-        file.read_to_string(&mut toml)?;
-        let config: Config = toml::from_str(&toml)?;
+    fn load() -> Result<Config, failure::Error> {
+        let config = match File::open(&Config::cfg_path()?) {
+            Ok(mut file) => {
+                let mut toml = String::new();
+                file.read_to_string(&mut toml)?;
+                toml::from_str(&toml)?
+            }
+            Err(_) => Default::default(),
+        };
         Ok(config)
     }
 }
@@ -82,27 +88,34 @@ impl Default for State {
 }
 
 impl State {
+    fn state_path() -> Result<PathBuf, failure::Error> {
+        Ok(app_dirs::app_dir(AppDataType::UserData, &APP_INFO, "")?.join("state.toml"))
+    }
+
     fn load(config: Config) -> Result<State, failure::Error> {
-        let cfg_path = app_dirs::app_dir(AppDataType::UserData, &APP_INFO, "")?.join("state.toml");
-        let mut file = File::open(&cfg_path)?;
-        let mut toml = String::new();
-        file.read_to_string(&mut toml)?;
-        let mut state: State = toml::from_str(&toml)?;
-        state.config = config;
+        let state = match File::open(&State::state_path()?) {
+            Ok(mut file) => {
+                let mut toml = String::new();
+                file.read_to_string(&mut toml)?;
+                let mut state: State = toml::from_str(&toml)?;
+                state.config = config;
+                state
+            }
+            Err(_) => Default::default(),
+        };
         Ok(state)
     }
 
     fn save(&self) -> Result<(), failure::Error> {
-        let cfg_path = app_dirs::app_dir(AppDataType::UserData, &APP_INFO, "")?.join("state.toml");
         let toml = toml::to_string(&self)?;
-        let mut file = File::create(&cfg_path)?;
+        let mut file = File::create(&State::state_path()?)?;
         file.write_all(toml.as_bytes())?;
         Ok(())
     }
 
-    fn delete(&self) -> Result<(), failure::Error> {
-        let cfg_path = app_dirs::app_dir(AppDataType::UserData, &APP_INFO, "")?.join("state.toml");
-        Ok(fs::remove_file(&cfg_path)?)
+    fn reset(&mut self) -> Result<(), failure::Error> {
+        self.started_at = None;
+        Ok(self.save()?)
     }
 
     fn display(&self, current_time: u64) -> String {
@@ -192,24 +205,29 @@ fn main() -> Result<(), failure::Error> {
             state.save()?;
         }
         Marinara::Stop {} => match State::load(Config::load()?) {
-            Ok(state) => {
-                state.delete()?;
+            Ok(mut state) => {
+                state.reset()?;
             }
             Err(_) => {
                 println!("no pomodoro running");
             }
         },
-        Marinara::Status {} => {
-            let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-            match State::load(Config::load()?) {
-                Ok(state) => {
-                    println!("{}", state.display(current_time));
-                }
-                Err(_) => {
-                    println!("no pomodoro running");
+        Marinara::Status {} => match Config::load() {
+            Ok(config) => {
+                let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+                match State::load(config) {
+                    Ok(state) => {
+                        println!("{}", state.display(current_time));
+                    }
+                    Err(_) => {
+                        println!("no pomodoro running");
+                    }
                 }
             }
-        }
+            Err(e) => {
+                println!("missing config {:?}", e);
+            }
+        },
     }
     Ok(())
 }

@@ -2,6 +2,9 @@
 name = "marinara"
 version = "0.1.0"
 authors = ["Douglas Campos <qmx@qmx.me>"]
+description = "a cli-based pomodoro timer"
+homepage = "https://github.com/qmx/marinara"
+license = "Apache-2.0/MIT"
 
 [dependencies]
 structopt = "0.2.13"

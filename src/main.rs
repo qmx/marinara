@@ -87,7 +87,8 @@ impl State {
         let mut file = File::open(&cfg_path)?;
         let mut toml = String::new();
         file.read_to_string(&mut toml)?;
-        let state: State = toml::from_str(&toml)?;
+        let mut state: State = toml::from_str(&toml)?;
+        state.config = config;
         Ok(state)
     }
 
@@ -194,7 +195,7 @@ fn main() -> Result<(), failure::Error> {
             Ok(state) => {
                 state.delete()?;
             }
-            Err(e) => {
+            Err(_) => {
                 println!("no pomodoro running");
             }
         },
@@ -204,7 +205,7 @@ fn main() -> Result<(), failure::Error> {
                 Ok(state) => {
                     println!("{}", state.display(current_time));
                 }
-                Err(e) => {
+                Err(_) => {
                     println!("no pomodoro running");
                 }
             }

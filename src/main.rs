@@ -2,11 +2,13 @@ extern crate app_dirs;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate chrono;
 extern crate failure;
 extern crate structopt;
 extern crate toml;
 
 use app_dirs::{AppDataType, AppInfo};
+use chrono::Duration;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
@@ -22,12 +24,6 @@ const APP_INFO: AppInfo = AppInfo {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "marinara", about = "pomodoro timer")]
 enum Marinara {
-    #[structopt(name = "init", about = "initialize configuration")]
-    Init {
-        #[structopt(short = "f", long = "force")]
-        /// Create a new config file with defaults, unconditionally
-        force: bool,
-    },
     #[structopt(name = "start", about = "start a new pomodoro")]
     Start {},
     #[structopt(name = "stop", about = "stop current pomodoro")]
@@ -36,37 +32,23 @@ enum Marinara {
     Status {},
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 struct Config {
-    count: u8,
-    duration: u64,
-    rest: u64,
+    duration: Duration,
+    rest: Duration,
 }
 
 impl Config {
-    fn cfg_path() -> Result<PathBuf, failure::Error> {
-        Ok(app_dirs::app_dir(AppDataType::UserConfig, &APP_INFO, "")?.join("config.toml"))
-    }
-
-    fn load() -> Result<Config, failure::Error> {
-        let config = match File::open(&Config::cfg_path()?) {
-            Ok(mut file) => {
-                let mut toml = String::new();
-                file.read_to_string(&mut toml)?;
-                toml::from_str(&toml)?
-            }
-            Err(_) => Default::default(),
-        };
-        Ok(config)
+    fn total(&self) -> Duration {
+        self.duration + self.rest
     }
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            count: 8,
-            duration: 25,
-            rest: 5,
+            duration: Duration::minutes(25),
+            rest: Duration::minutes(5),
         }
     }
 }
@@ -118,116 +100,117 @@ impl State {
         Ok(self.save()?)
     }
 
-    fn display(&self, current_time: u64) -> String {
+    fn pomodoro(&self, current_time: u64) -> Option<Pomodoro> {
         if let Some(started_at) = self.started_at {
-            let elapsed = current_time - started_at;
-            let elapsed_min = elapsed / 60;
-            if elapsed_min <= self.config.duration {
-                format!("W: {}m", self.config.duration - elapsed_min)
-            } else if elapsed_min < (self.config.duration + self.config.rest) {
-                format!(
-                    "R: {}m",
-                    (self.config.duration + self.config.rest) - elapsed_min
-                )
+            let elapsed: i64 = (current_time - started_at) as i64;
+            if elapsed <= self.config.duration.num_seconds() {
+                Some(Pomodoro::Work {
+                    remaining_time: self.config.duration - Duration::seconds(elapsed),
+                })
+            } else if elapsed < self.config.total().num_seconds() {
+                Some(Pomodoro::Rest {
+                    remaining_time: self.config.total() - Duration::seconds(elapsed),
+                })
             } else {
-                format!("READY")
+                Some(Pomodoro::Done)
             }
         } else {
-            "no pomodoro running".to_string()
+            None
+        }
+    }
+}
+
+trait Display {
+    fn display(self) -> String;
+}
+
+impl Display for Option<Pomodoro> {
+    fn display(self) -> String {
+        match self {
+            Some(pomodoro) => pomodoro.display(),
+            None => ">----".to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Pomodoro {
+    Work { remaining_time: Duration },
+    Rest { remaining_time: Duration },
+    Done,
+}
+
+impl Pomodoro {
+    fn prefix(self) -> &'static str {
+        match self {
+            Pomodoro::Work { .. } => "W",
+            Pomodoro::Rest { .. } => "R",
+            Pomodoro::Done => ">",
+        }
+    }
+
+    fn display(self) -> String {
+        match self {
+            Pomodoro::Work { remaining_time } | Pomodoro::Rest { remaining_time } => {
+                if remaining_time.num_minutes() > 0 {
+                    format!("{}:{:2}m", self.prefix(), remaining_time.num_minutes())
+                } else {
+                    format!("{}:{:2}s", self.prefix(), remaining_time.num_seconds())
+                }
+            }
+            Pomodoro::Done => ">DONE".to_string(),
         }
     }
 }
 
 #[test]
-fn test_display_for_state() {
+fn test_pomodoro_display() {
     assert_eq!(
-        format!(
-            "{}",
-            State {
-                started_at: None,
-                ..Default::default()
-            }.display(10)
-        ),
-        "no pomodoro running"
+        Pomodoro::Work {
+            remaining_time: Duration::minutes(15)
+        }.display(),
+        "W:15m"
     );
     assert_eq!(
-        format!(
-            "{}",
-            State {
-                started_at: Some(0),
-                ..Default::default()
-            }.display(600)
-        ),
-        "W: 15m"
+        Pomodoro::Work {
+            remaining_time: Duration::minutes(3)
+        }.display(),
+        "W: 3m"
     );
     assert_eq!(
-        format!(
-            "{}",
-            State {
-                started_at: Some(0),
-                ..Default::default()
-            }.display(1600)
-        ),
-        "R: 4m"
+        Pomodoro::Work {
+            remaining_time: Duration::seconds(45)
+        }.display(),
+        "W:45s"
     );
     assert_eq!(
-        format!(
-            "{}",
-            State {
-                started_at: Some(0),
-                ..Default::default()
-            }.display(1801)
-        ),
-        "READY"
+        Pomodoro::Rest {
+            remaining_time: Duration::minutes(3)
+        }.display(),
+        "R: 3m"
     );
+    assert_eq!(Pomodoro::Done {}.display(), ">DONE");
 }
 
 fn main() -> Result<(), failure::Error> {
     let opt = Marinara::from_args();
     match opt {
-        Marinara::Init { force } => {
-            let cfg_path =
-                app_dirs::app_dir(AppDataType::UserConfig, &APP_INFO, "")?.join("config.toml");
-            if force {
-                let cfg: Config = Default::default();
-                let toml = toml::to_string(&cfg)?;
-                let mut file = File::create(&cfg_path)?;
-                file.write_all(toml.as_bytes())?;
-                println!("wrote new config to {}", &cfg_path.display());
-            }
-        }
         Marinara::Start {} => {
-            let config = Config::load()?;
+            let config: Config = Default::default();
             let state = State {
                 started_at: Some(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()),
                 config,
             };
             state.save()?;
         }
-        Marinara::Stop {} => match State::load(Config::load()?) {
-            Ok(mut state) => {
-                state.reset()?;
-            }
-            Err(_) => {
-                println!("no pomodoro running");
-            }
-        },
-        Marinara::Status {} => match Config::load() {
-            Ok(config) => {
-                let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-                match State::load(config) {
-                    Ok(state) => {
-                        println!("{}", state.display(current_time));
-                    }
-                    Err(_) => {
-                        println!("no pomodoro running");
-                    }
-                }
-            }
-            Err(e) => {
-                println!("missing config {:?}", e);
-            }
-        },
-    }
+        Marinara::Stop {} => {
+            State::load(Default::default())?.reset()?;
+        }
+        Marinara::Status {} => {
+            let state = State::load(Default::default())?;
+            let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+            println!("{}", state.pomodoro(current_time).display());
+        }
+    };
     Ok(())
 }

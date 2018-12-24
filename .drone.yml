@@ -6,3 +6,4 @@ steps:
   image: rust:1.31
   commands:
   - cargo test --verbose --all
+

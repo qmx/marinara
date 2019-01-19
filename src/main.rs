@@ -1,11 +1,11 @@
-extern crate app_dirs;
-extern crate serde;
+use app_dirs;
+
 #[macro_use]
 extern crate serde_derive;
-extern crate chrono;
-extern crate failure;
-extern crate structopt;
-extern crate toml;
+
+use failure;
+use structopt;
+use toml;
 
 use app_dirs::{AppDataType, AppInfo};
 use chrono::Duration;

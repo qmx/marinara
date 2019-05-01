@@ -1,14 +1,11 @@
 use app_dirs;
-
-#[macro_use]
-extern crate serde_derive;
-
 use failure;
 use structopt;
 use toml;
 
 use app_dirs::{AppDataType, AppInfo};
 use chrono::Duration;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;

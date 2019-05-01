@@ -165,25 +165,29 @@ fn test_pomodoro_display() {
     assert_eq!(
         Pomodoro::Work {
             remaining_time: Duration::minutes(15)
-        }.display(),
+        }
+        .display(),
         "W:15m"
     );
     assert_eq!(
         Pomodoro::Work {
             remaining_time: Duration::minutes(3)
-        }.display(),
+        }
+        .display(),
         "W: 3m"
     );
     assert_eq!(
         Pomodoro::Work {
             remaining_time: Duration::seconds(45)
-        }.display(),
+        }
+        .display(),
         "W:45s"
     );
     assert_eq!(
         Pomodoro::Rest {
             remaining_time: Duration::minutes(3)
-        }.display(),
+        }
+        .display(),
         "R: 3m"
     );
     assert_eq!(Pomodoro::Done {}.display(), ">DONE");
